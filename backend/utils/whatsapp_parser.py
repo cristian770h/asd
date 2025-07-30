@@ -1,13 +1,10 @@
-# backend/utils/whatsapp_parser.py - Parser de WhatsApp
+# backend/utils/whatsapp_parser.py - Parser de WhatsApp Completo
 import re
 import logging
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass
-
-from .coordinates_extractor import CoordinatesExtractor
-from models.nlp_processor import NLPProcessor
-from database.models import Product
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +26,6 @@ class WhatsAppParser:
     
     def __init__(self, config=None):
         self.config = config or {}
-        self.coords_extractor = CoordinatesExtractor()
-        self.nlp_processor = NLPProcessor(config)
         
         # Patrones de regex mejorados
         self.patterns = {
@@ -39,8 +34,7 @@ class WhatsAppParser:
                 r'cliente[:\s#]*([0-9]+)',
                 r'client[e]?[:\s#]*([0-9]+)',
                 r'#([0-9]+)',
-                r'numero[:\s]*([0-9]+)',
-                r'tel[éeéfono]*[:\s]*([0-9\-\s\(\)]{10,})'
+                r'numero[:\s]*([0-9]+)'
             ],
             
             # Información de contacto
@@ -58,6 +52,13 @@ class WhatsAppParser:
                 r'client[e]?[:\s]+([\w\s]+?)(?:\n|tel|numero|dirección|ubicación|$)'
             ],
             
+            # Coordenadas
+            'coordinates': [
+                r'(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)',
+                r'lat[itud]*[:\s]*(-?\d+\.?\d*)\s*,?\s*lng?[:\s]*(-?\d+\.?\d*)',
+                r'ubicación[:\s]*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)'
+            ],
+            
             # Referencias y direcciones
             'references': [
                 r'referencia[s]?[:\s]+(.*?)(?:\n|precio|total|cantidad|$)',
@@ -69,34 +70,22 @@ class WhatsAppParser:
             
             # Información de productos y cantidades
             'product_quantity': [
-                r'(\d+)\s*(?:pzas?|piezas?|unidades?|kg|g|ml|litros?|lts?)\s+(.+?)(?:\n|precio|\$|total|$)',
-                r'(.+?)\s+(\d+)\s*(?:pzas?|piezas?|unidades?|kg|g|ml|litros?|lts?)(?:\n|precio|\$|total|$)',
-                r'cantidad[:\s]*(\d+)\s*(?:de\s+)?(.+?)(?:\n|precio|\$|total|$)'
+                r'(\d+)\s*(?:pzas?|piezas?|unidades?|kg|g|ml|litros?|lts?)\s+(.+?)(?:\n|\$|precio|total|$)',
+                r'(.+?)\s+(\d+)\s*(?:pzas?|piezas?|unidades?|kg|g|ml|litros?|lts?)(?:\n|\$|precio|total|$)',
+                r'cantidad[:\s]*(\d+)\s*(?:de\s+)?(.+?)(?:\n|\$|precio|total|$)'
             ],
             
             # Precios
             'prices': [
-                r'precio[:\s]*\$?([0-9,]+(?:\.[0-9]{2})?)',
-                r'total[:\s]*\$?([0-9,]+(?:\.[0-9]{2})?)',
-                r'\$([0-9,]+(?:\.[0-9]{2})?)',
-                r'([0-9,]+(?:\.[0-9]{2})?)\s*pesos',
-                r'costo[:\s]*\$?([0-9,]+(?:\.[0-9]{2})?)'
-            ],
-            
-            # Métodos de pago
-            'payment_method': [
-                r'pago[:\s]*(efectivo|tarjeta|transferencia|oxxo)',
-                r'forma de pago[:\s]*(efectivo|tarjeta|transferencia|oxxo)',
-                r'(efectivo|tarjeta|transferencia|oxxo)',
-                r'pagar\s+(con\s+)?(efectivo|tarjeta|transferencia|oxxo)'
+                r'\$\s*([0-9]+(?:\.[0-9]{2})?)',
+                r'precio[:\s]*\$?\s*([0-9]+(?:\.[0-9]{2})?)',
+                r'total[:\s]*\$?\s*([0-9]+(?:\.[0-9]{2})?)',
+                r'([0-9]+(?:\.[0-9]{2})?)\s*pesos'
             ],
             
             # Horarios de entrega
             'delivery_time': [
-                r'entrega[:\s]*([0-9]{1,2}:[0-9]{2})',
-                r'hora[:\s]*([0-9]{1,2}:[0-9]{2})',
-                r'a las[:\s]*([0-9]{1,2}:[0-9]{2})',
-                r'([0-9]{1,2}:[0-9]{2})\s*(?:hrs?|horas?|am|pm)',
+                r'(?:entrega|delivery|envío)[:\s]*([0-9]{1,2}:[0-9]{2})\s*(?:hrs?|horas?|am|pm)',
                 r'entre\s+([0-9]{1,2}:[0-9]{2})\s*y\s*([0-9]{1,2}:[0-9]{2})'
             ],
             
@@ -109,10 +98,12 @@ class WhatsAppParser:
             ]
         }
         
-        # Palabras clave para limpiar texto
-        self.stop_words = {
-            'productos', 'producto', 'pedido', 'orden', 'compra', 'venta',
-            'entrega', 'envío', 'delivery', 'whatsapp', 'mensaje'
+        # Productos conocidos del sistema
+        self.known_products = {
+            'croquetas': ['croquetas', 'alimento', 'comida perro'],
+            'collar': ['collar', 'correa'],
+            'juguete': ['juguete', 'pelota', 'hueso'],
+            'shampoo': ['shampoo', 'champú', 'jabón']
         }
         
     def parse_message(self, message: str) -> ParsedOrder:
@@ -145,275 +136,299 @@ class WhatsAppParser:
             result.metadata['original_message'] = message
             result.metadata['cleaned_message'] = clean_message
             result.metadata['message_length'] = len(message)
+            result.metadata['parsed_at'] = datetime.now().isoformat()
             
             # 1. Extraer coordenadas
             coords_result = self._extract_coordinates(clean_message)
-            if coords_result['coordinates']:
-                result.coordinates = coords_result['coordinates']
-                result.delivery_info.update(coords_result)
+            if coords_result:
+                result.coordinates = coords_result
                 result.confidence += 0.25
             else:
-                result.errors.append("No se encontraron coordenadas válidas")
+                result.warnings.append("No se encontraron coordenadas")
             
             # 2. Extraer información del cliente
             customer_info = self._extract_customer_info(clean_message)
             result.customer_info = customer_info
-            if customer_info:
+            if customer_info.get('name') or customer_info.get('phone'):
                 result.confidence += 0.15
             
             # 3. Extraer productos
-            products_result = self._extract_products(clean_message)
-            result.products = products_result['products']
-            if products_result['products']:
+            products = self._extract_products(clean_message)
+            result.products = products
+            if products:
                 result.confidence += 0.35
-                result.metadata['products_found'] = len(products_result['products'])
+                result.metadata['products_found'] = len(products)
             else:
                 result.errors.append("No se encontraron productos válidos")
             
-            # 4. Extraer información de pago
+            # 4. Extraer información de entrega
+            delivery_info = self._extract_delivery_info(clean_message)
+            result.delivery_info = delivery_info
+            if delivery_info:
+                result.confidence += 0.15
+            
+            # 5. Extraer información de pago
             payment_info = self._extract_payment_info(clean_message)
             result.payment_info = payment_info
-            if payment_info:
+            if payment_info.get('total') or payment_info.get('method'):
                 result.confidence += 0.10
             
-            # 5. Extraer información de entrega
-            delivery_info = self._extract_delivery_info(clean_message)
-            result.delivery_info.update(delivery_info)
-            if delivery_info:
-                result.confidence += 0.10
-            
-            # 6. Extraer referencias y comentarios
-            references = self._extract_references(clean_message)
-            if references:
-                result.delivery_info['references'] = references
-                result.confidence += 0.05
-            
-            # 7. Validaciones finales
-            self._validate_parsed_data(result)
-            
-            # 8. Calcular confianza final
-            result.confidence = min(1.0, result.confidence)
-            result.metadata['parsing_timestamp'] = datetime.now().isoformat()
+            # Validar resultado final
+            result = self._validate_parsed_data(result)
             
             logger.info(f"Mensaje parseado con confianza: {result.confidence:.2f}")
             
         except Exception as e:
-            logger.error(f"Error parseando mensaje: {e}")
-            result.errors.append(f"Error crítico: {str(e)}")
+            logger.error(f"Error parseando mensaje: {str(e)}")
+            result.errors.append(f"Error de parseo: {str(e)}")
             result.confidence = 0.0
-        
+            
         return result
     
     def _clean_message(self, message: str) -> str:
-        """Limpiar y normalizar el mensaje"""
+        """Limpiar y normalizar mensaje"""
+        # Convertir a minúsculas
+        clean = message.lower()
         
         # Remover caracteres especiales innecesarios
-        clean = re.sub(r'[^\w\s.,:\-()/$@]', ' ', message)
+        clean = re.sub(r'[^\w\s\n\$\.,:\-\(\)#]', ' ', clean)
         
-        # Normalizar espacios en blanco
+        # Normalizar espacios
         clean = re.sub(r'\s+', ' ', clean)
         
-        # Remover URLs de imágenes y archivos
-        clean = re.sub(r'https?://\S+\.(jpg|jpeg|png|gif|pdf|doc)', '', clean, flags=re.IGNORECASE)
-        
-        # Normalizar caracteres especiales
-        clean = clean.replace('$', ' $ ')
-        clean = clean.replace(':', ': ')
-        clean = clean.replace(',', ', ')
-        
-        # Convertir a minúsculas manteniendo algunos caracteres importantes
-        # clean = clean.lower()  # Comentado para mantener mayúsculas en nombres
+        # Normalizar saltos de línea
+        clean = re.sub(r'\n+', '\n', clean)
         
         return clean.strip()
     
-    def _extract_coordinates(self, message: str) -> Dict:
+    def _extract_coordinates(self, message: str) -> Optional[Tuple[float, float]]:
         """Extraer coordenadas del mensaje"""
-        
-        result = {
-            'coordinates': None,
-            'address': None,
-            'location_type': 'unknown',
-            'confidence': 0.0
-        }
-        
-        try:
-            # Usar el extractor de coordenadas
-            coords_data = self.coords_extractor.extract_with_context(message)
-            
-            if coords_data['coordinates']:
-                result['coordinates'] = coords_data['coordinates']
-                result['location_type'] = coords_data['source_type']
-                result['confidence'] = coords_data['confidence']
-                
-                # Intentar obtener dirección
-                lat, lng = coords_data['coordinates']
-                address = self.coords_extractor.get_address_from_coordinates(lat, lng)
-                if address:
-                    result['address'] = address
-                
-                logger.debug(f"Coordenadas extraídas: {coords_data['coordinates']}")
-            
-        except Exception as e:
-            logger.error(f"Error extrayendo coordenadas: {e}")
-        
-        return result
+        for pattern in self.patterns['coordinates']:
+            matches = re.findall(pattern, message)
+            if matches:
+                try:
+                    for match in matches:
+                        lat, lng = float(match[0]), float(match[1])
+                        # Validar rango de coordenadas (aproximado para México)
+                        if -120 <= lng <= -80 and 10 <= lat <= 35:
+                            return (lat, lng)
+                except (ValueError, IndexError):
+                    continue
+        return None
     
     def _extract_customer_info(self, message: str) -> Dict:
         """Extraer información del cliente"""
-        
         customer_info = {}
         
-        # Extraer número de cliente
-        for pattern in self.patterns['client_number']:
-            match = re.search(pattern, message, re.IGNORECASE)
+        # Extraer nombre
+        for pattern in self.patterns['customer_name']:
+            match = re.search(pattern, message)
             if match:
-                customer_info['client_number'] = match.group(1)
-                break
+                name = match.group(1).strip().title()
+                if len(name) > 2:
+                    customer_info['name'] = name
+                    break
         
         # Extraer teléfono
         for pattern in self.patterns['phone']:
-            match = re.search(pattern, message, re.IGNORECASE)
+            match = re.search(pattern, message)
             if match:
                 phone = re.sub(r'[^\d]', '', match.group(1))
                 if len(phone) >= 10:
                     customer_info['phone'] = phone
-                break
+                    break
         
-        # Extraer nombre
-        for pattern in self.patterns['customer_name']:
-            match = re.search(pattern, message, re.IGNORECASE)
+        # Extraer número de cliente
+        for pattern in self.patterns['client_number']:
+            match = re.search(pattern, message)
             if match:
-                name = match.group(1).strip()
-                if len(name) > 2 and not any(char.isdigit() for char in name):
-                    customer_info['name'] = name
+                customer_info['client_number'] = match.group(1)
                 break
         
         return customer_info
     
-    def _extract_products(self, message: str) -> Dict:
-        """Extraer productos y cantidades"""
-        
-        # Usar el procesador NLP para extracción inicial
-        nlp_result = self.nlp_processor.parse_whatsapp_message(message)
-        
+    def _extract_products(self, message: str) -> List[Dict]:
+        """Extraer productos del mensaje"""
         products = []
         
-        # Si NLP encontró productos, usarlos
-        if nlp_result.get('products'):
-            products = nlp_result['products']
-        
-        # Complementar con extracción manual por patrones
-        manual_products = self._extract_products_manual(message)
-        
-        # Combinar resultados, priorizando NLP
-        for manual_product in manual_products:
-            # Verificar si ya existe un producto similar
-            found = False
-            for existing in products:
-                if self._products_similar(existing.get('name', ''), manual_product.get('name', '')):
-                    found = True
-                    break
-            
-            if not found:
-                products.append(manual_product)
-        
-        return {
-            'products': products,
-            'extraction_method': 'nlp+manual' if nlp_result.get('products') else 'manual',
-            'nlp_confidence': nlp_result.get('confidence', 0.0)
-        }
-    
-    def _extract_products_manual(self, message: str) -> List[Dict]:
-        """Extracción manual de productos por patrones"""
-        
-        products = []
-        
-        # Patrones para cantidad + producto
+        # Buscar patrones de cantidad + producto
         for pattern in self.patterns['product_quantity']:
-            matches = re.finditer(pattern, message, re.IGNORECASE)
+            matches = re.findall(pattern, message)
             for match in matches:
-                try:
-                    # Determinar cuál grupo es cantidad y cuál es producto
-                    group1, group2 = match.group(1), match.group(2)
-                    
-                    if group1.isdigit():
-                        quantity, product_text = int(group1), group2
-                    elif group2.isdigit():
-                        quantity, product_text = int(group2), group1
-                    else:
-                        continue
-                    
-                    # Limpiar nombre del producto
-                    product_name = self._clean_product_name(product_text)
-                    
-                    if product_name and quantity > 0:
-                        # Buscar producto en base de datos
-                        product_match = self._find_product_in_db(product_name)
+                if len(match) == 2:
+                    try:
+                        # Determinar si el primer elemento es cantidad o producto
+                        if match[0].isdigit():
+                            quantity, product_name = int(match[0]), match[1].strip()
+                        else:
+                            product_name, quantity = match[0].strip(), int(match[1])
                         
-                        if product_match:
+                        # Normalizar nombre del producto
+                        product_name = self._normalize_product_name(product_name)
+                        
+                        if product_name and quantity > 0:
                             products.append({
-                                'name': product_match['name'],
-                                'product_id': product_match['id'],
-                                'brand': product_match['brand'],
-                                'category': product_match['category'],
+                                'name': product_name,
                                 'quantity': quantity,
-                                'price': product_match['price'],
-                                'confidence': 0.8,
-                                'matched_text': product_text,
-                                'extraction_method': 'manual_pattern'
+                                'unit': self._extract_unit(message, product_name),
+                                'price': self._extract_product_price(message, product_name)
                             })
-                
-                except (ValueError, IndexError) as e:
-                    logger.debug(f"Error procesando match de producto: {e}")
-                    continue
+                    except ValueError:
+                        continue
         
         return products
     
-    def _clean_product_name(self, product_text: str) -> str:
-        """Limpiar nombre de producto"""
+    def _normalize_product_name(self, product_name: str) -> str:
+        """Normalizar nombre del producto"""
+        product_name = product_name.lower().strip()
         
-        # Remover palabras irrelevantes
-        for stop_word in self.stop_words:
-            product_text = re.sub(rf'\b{stop_word}\b', '', product_text, flags=re.IGNORECASE)
+        # Buscar coincidencias con productos conocidos
+        for category, keywords in self.known_products.items():
+            for keyword in keywords:
+                if keyword in product_name:
+                    return category.title()
         
-        # Remover números sueltos y caracteres especiales
-        product_text = re.sub(r'\b\d+\b', '', product_text)
-        product_text = re.sub(r'[^\w\s]', ' ', product_text)
+        # Si no se encuentra coincidencia, limpiar y devolver
+        product_name = re.sub(r'\b(?:de|del|la|el|un|una)\b', '', product_name)
+        product_name = re.sub(r'\s+', ' ', product_name).strip()
         
-        # Normalizar espacios
-        product_text = re.sub(r'\s+', ' ', product_text).strip()
-        
-        return product_text
+        return product_name.title() if len(product_name) > 2 else None
     
-    def _find_product_in_db(self, product_text: str) -> Optional[Dict]:
-        """Buscar producto en base de datos por similitud"""
+    def _extract_unit(self, message: str, product_name: str) -> str:
+        """Extraer unidad del producto"""
+        units = ['pzas', 'piezas', 'unidades', 'kg', 'g', 'ml', 'litros', 'lts']
         
-        try:
-            from database.connection import db
-            
-            # Buscar por coincidencia exacta primero
-            exact_match = db.session.query(Product).filter(
-                Product.name.ilike(f'%{product_text}%'),
-                Product.is_active == True
-            ).first()
-            
-            if exact_match:
-                return {
-                    'id': exact_match.id,
-                    'name': exact_match.name,
-                    'brand': exact_match.brand,
-                    'category': exact_match.category,
-                    'price': float(exact_match.price)
-                }
-            
-            # Usar NLP processor para similitud
-            similar_products = self.nlp_processor.suggest_product_corrections(product_text, max_suggestions=1)
-            
-            if similar_products and similar_products[0]['similarity_score'] > 70:
-                product_id = similar_products[0]['product_id']
-                product = db.session.query(Product).get(product_id)
-                
-                if product:
-                    return {
-                        'id': product.id,
-                        'name': product.name,
+        for unit in units:
+            pattern = rf'{re.escape(product_name)}.*?(\d+)\s*{unit}'
+            if re.search(pattern, message, re.IGNORECASE):
+                return unit
+        
+        return 'piezas'  # Unidad por defecto
+    
+    def _extract_product_price(self, message: str, product_name: str) -> Optional[float]:
+        """Extraer precio específico del producto"""
+        # Buscar precio cerca del nombre del producto
+        product_area = self._get_text_around_product(message, product_name, 50)
+        
+        for pattern in self.patterns['prices']:
+            match = re.search(pattern, product_area)
+            if match:
+                try:
+                    return float(match.group(1))
+                except ValueError:
+                    continue
+        
+        return None
+    
+    def _get_text_around_product(self, message: str, product_name: str, window: int) -> str:
+        """Obtener texto alrededor del nombre del producto"""
+        match = re.search(re.escape(product_name), message, re.IGNORECASE)
+        if match:
+            start = max(0, match.start() - window)
+            end = min(len(message), match.end() + window)
+            return message[start:end]
+        return message
+    
+    def _extract_delivery_info(self, message: str) -> Dict:
+        """Extraer información de entrega"""
+        delivery_info = {}
+        
+        # Extraer referencias
+        for pattern in self.patterns['references']:
+            match = re.search(pattern, message)
+            if match:
+                reference = match.group(1).strip()
+                if len(reference) > 5:
+                    delivery_info['reference'] = reference
+                    break
+        
+        # Extraer horarios
+        for pattern in self.patterns['delivery_time']:
+            match = re.search(pattern, message)
+            if match:
+                if len(match.groups()) == 1:
+                    delivery_info['preferred_time'] = match.group(1)
+                else:
+                    delivery_info['time_range'] = f"{match.group(1)} - {match.group(2)}"
+                break
+        
+        # Extraer instrucciones especiales
+        for pattern in self.patterns['special_instructions']:
+            match = re.search(pattern, message)
+            if match:
+                instruction = match.group(1).strip()
+                if len(instruction) > 3:
+                    delivery_info['special_instructions'] = instruction
+                    break
+        
+        return delivery_info
+    
+    def _extract_payment_info(self, message: str) -> Dict:
+        """Extraer información de pago"""
+        payment_info = {}
+        
+        # Extraer precios/totales
+        prices = []
+        for pattern in self.patterns['prices']:
+            matches = re.findall(pattern, message)
+            for match in matches:
+                try:
+                    prices.append(float(match))
+                except ValueError:
+                    continue
+        
+        if prices:
+            # Asumir que el precio más alto es el total
+            payment_info['total'] = max(prices)
+            payment_info['subtotals'] = prices
+        
+        # Detectar método de pago
+        payment_methods = {
+            'efectivo': ['efectivo', 'cash', 'dinero'],
+            'tarjeta': ['tarjeta', 'card', 'bancario'],
+            'transferencia': ['transferencia', 'transfer', 'depósito']
+        }
+        
+        for method, keywords in payment_methods.items():
+            for keyword in keywords:
+                if keyword in message:
+                    payment_info['method'] = method
+                    break
+            if 'method' in payment_info:
+                break
+        
+        return payment_info
+    
+    def _validate_parsed_data(self, result: ParsedOrder) -> ParsedOrder:
+        """Validar y mejorar datos parseados"""
+        
+        # Validar productos
+        if not result.products:
+            result.errors.append("No se identificaron productos en el mensaje")
+            result.confidence *= 0.1
+        
+        # Validar coordenadas
+        if not result.coordinates:
+            result.warnings.append("No se encontraron coordenadas de entrega")
+        
+        # Validar información del cliente
+        if not result.customer_info.get('name') and not result.customer_info.get('phone'):
+            result.warnings.append("Información limitada del cliente")
+            result.confidence *= 0.8
+        
+        # Validar coherencia de precios
+        if result.payment_info.get('total'):
+            total = result.payment_info['total']
+            if total < 10 or total > 10000:  # Rangos razonables
+                result.warnings.append(f"Total parece inusual: ${total}")
+        
+        # Calcular confianza final
+        if result.errors:
+            result.confidence *= 0.5
+        if result.warnings:
+            result.confidence *= 0.9
+        
+        result.metadata['validation_completed'] = True
+        result.metadata['final_confidence'] = result.confidence
+        
+        return result

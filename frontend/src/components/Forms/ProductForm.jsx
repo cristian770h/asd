@@ -11,7 +11,7 @@ import {
   Save,
   AlertCircle
 } from 'lucide-react'
-import { useQuery } from 'react-query'
+import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import Button from '@/components/UI/Button'
 import Card from '@/components/UI/Card'

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts'
 import { motion } from 'framer-motion'
 import { Calendar, TrendingUp, BarChart3 } from 'lucide-react'
-import { useQuery } from 'react-query'
+import { useQuery } from '@tanstack/react-query'
 import { ordersAPI } from '@/services/api'
 import { formatCurrency, formatDate } from '@/utils/formatters'
 

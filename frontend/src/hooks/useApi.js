@@ -1,6 +1,6 @@
 // frontend/src/hooks/useApi.js - Hook de API
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api, apiUtils, errorHandler, retryHelper } from '@/services/api'
 

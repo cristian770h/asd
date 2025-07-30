@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { MapPin, Layers, Zap, AlertCircle } from 'lucide-react'
-import { useQuery } from 'react-query'
+import { useQuery } from '@tanstack/react-query'
 import { clusteringAPI } from '@/services/api'
 import { formatCurrency } from '@/utils/formatters'
 

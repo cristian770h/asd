@@ -10,7 +10,7 @@ import {
   Brain,
   Clock
 } from 'lucide-react'
-import { useQuery } from 'react-query'
+import { useQuery } from '@tanstack/react-query'
 import SalesChart from '@/components/Charts/SalesChart'
 import HeatMap from '@/components/Charts/HeatMap'
 import PredictionChart from '@/components/Charts/PredictionChart'

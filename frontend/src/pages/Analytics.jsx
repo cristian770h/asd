@@ -14,13 +14,13 @@ import {
   Download,
   RefreshCw
 } from 'lucide-react'
-import { useQuery } from 'react-query'
-import Card from '@/components/UI/Card'
-import Button from '@/components/UI/Button'
-import SalesChart from '@/components/Charts/SalesChart'
-import PredictionChart from '@/components/Charts/PredictionChart'
-import HeatMap from '@/components/Charts/HeatMap'
-import { ordersAPI, productsAPI, clusteringAPI, predictionsAPI } from '@/services/api'
+import { useQuery } from '@tanstack/react-query'
+import Card from '../components/UI/Card'
+import Button from '../components/UI/Button'
+import SalesChart from '../components/Charts/SalesChart'
+import PredictionChart from '../components/Charts/PredictionChart'
+import HeatMap from '../components/Charts/HeatMap'
+import { ordersAPI, productsAPI, clusteringAPI, predictionsAPI } from '../services/api'
 import { formatCurrency, formatNumber, formatPercentage, formatDate } from '@/utils/formatters'
 
 const Analytics = () => {

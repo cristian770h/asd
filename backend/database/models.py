@@ -8,12 +8,12 @@ class Product(db.Model):
     __tablename__ = 'products'
     
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False, unique=True)
+    name = db.Column(db.String(191), nullable=False, unique=True)
     brand = db.Column(db.String(100), nullable=False)
     category = db.Column(db.String(50), nullable=False)
     weight_size = db.Column(db.String(50))  # ej: "20kg", "15ml"
-    price = db.Column(db.Decimal(10, 2), nullable=False)
-    cost = db.Column(db.Decimal(10, 2))  # Costo del producto
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    cost = db.Column(db.Numeric(10, 2))  # Costo del producto
     
     # Control de inventario
     current_stock = db.Column(db.Integer, default=0)
@@ -82,7 +82,7 @@ class Customer(db.Model):
     
     # Metadatos
     total_orders = db.Column(db.Integer, default=0)
-    total_spent = db.Column(db.Decimal(12, 2), default=0)
+    total_spent = db.Column(db.Numeric(12, 2), default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -120,8 +120,8 @@ class Sale(db.Model):
     
     # Datos de la venta
     quantity = db.Column(db.Integer, nullable=False)
-    unit_price = db.Column(db.Decimal(10, 2), nullable=False)
-    total_price = db.Column(db.Decimal(12, 2), nullable=False)
+    unit_price = db.Column(db.Numeric(10, 2), nullable=False)
+    total_price = db.Column(db.Numeric(12, 2), nullable=False)
     
     # Datos geográficos
     latitude = db.Column(db.Float, nullable=False)
@@ -265,8 +265,8 @@ class ClusterInfo(db.Model):
     
     # Estadísticas del cluster
     total_sales = db.Column(db.Integer, default=0)
-    total_revenue = db.Column(db.Decimal(12, 2), default=0)
-    avg_order_value = db.Column(db.Decimal(10, 2), default=0)
+    total_revenue = db.Column(db.Numeric(12, 2), default=0)
+    avg_order_value = db.Column(db.Numeric(10, 2), default=0)
     
     # Zona geográfica aproximada
     zone_name = db.Column(db.String(100))
