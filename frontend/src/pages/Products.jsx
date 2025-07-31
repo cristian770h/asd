@@ -27,8 +27,8 @@ import Select from '../components/UI/Select'
 import Modal from '../components/UI/Modal'
 import Badge from '../components/UI/Badge'
 import { useProducts } from '../hooks/useProducts'
-import { usePredictions } from '@/hooks/usePredictions'
-import { formatCurrency, formatDate } from '@/utils/formatters'
+import { usePredictions } from '../hooks/usePredictions'
+import { formatCurrency, formatDate } from '../utils/formatters'
 
 const Products = () => {
   const [searchTerm, setSearchTerm] = useState('')

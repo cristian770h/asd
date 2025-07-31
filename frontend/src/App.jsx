@@ -8,19 +8,19 @@ import { useLocation } from 'react-router-dom'
 import Layout from '@/components/Layout/Layout'
 
 // Páginas
-import Dashboard from '@/pages/Dashboard'
-import Products from '@/pages/Products'
-import Orders from '@/pages/Orders'
-import Predictions from '@/pages/Predictions'
-import Inventory from '@/pages/Inventory'
-import Analytics from '@/pages/Analytics'
+import Dashboard from './pages/Dashboard'
+import Products from './pages/Products'
+import Orders from './pages/Orders'
+import Predictions from './pages/Predictions'
+import Inventory from './pages/Inventory'
+import Analytics from './pages/Analytics'
 
 // Hooks
-import { useSocketConnection } from '@/hooks/useSocketConnection'
-import { useAuthStore } from '@/store/authStore'
+import { useSocketConnection } from '../hooks/useSocketConnection'
+import { useAuthStore } from './store/authStore'
 
 // Utilidades
-import { initializeApp } from '@/utils/appInitializer'
+import { initializeApp } from './utils/appInitializer'
 
 function App() {
   const location = useLocation()

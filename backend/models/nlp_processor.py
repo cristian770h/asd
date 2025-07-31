@@ -2,7 +2,7 @@
 import re
 import spacy
 import pandas as pd
-from fuzzywuzzy import fuzz, process
+import thef # Nueva forma recomendada
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
